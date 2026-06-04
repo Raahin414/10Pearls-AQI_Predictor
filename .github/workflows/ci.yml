@@ -1,0 +1,95 @@
+name: ci
+
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+    branches: ["main"]
+  workflow_dispatch:
+
+jobs:
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+      - name: Ruff
+        run: ruff check .
+
+  test:
+    name: Tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+      - name: Pytest
+        run: pytest
+
+  build-validation:
+    name: Build Validation
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+      - name: Compile Python modules
+        run: python -m compileall karachi_aqi scripts tests app.py pages
+      - name: Import application modules
+        run: |
+          python - <<'PY'
+          import karachi_aqi
+          import karachi_aqi.data.mongo
+          import karachi_aqi.models.artifacts
+          import karachi_aqi.services.training
+          print("imports ok")
+          PY
+
+  deployment-validation:
+    name: Streamlit Deployment Validation
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    needs: [lint, test, build-validation]
+    env:
+      MONGODB_URI: mongodb+srv://placeholder:placeholder@localhost.invalid/
+      MONGODB_DATABASE: karachi_aqi
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+      - name: Verify Streamlit starts
+        run: |
+          streamlit run app.py --server.headless true --server.port 8501 &
+          STREAMLIT_PID=$!
+          sleep 8
+          curl --fail http://localhost:8501/_stcore/health
+          kill $STREAMLIT_PID
